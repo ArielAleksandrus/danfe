@@ -1,0 +1,323 @@
+<html>
+  <head>
+
+    <!-- JQuery 1.5.2 library -->
+    <script src="lib/jquery.js"></script>
+
+    <!-- JQuery QrCode library -->
+    <script src="lib/qrcode.js"></script>
+
+
+    <style>
+      html {
+        font-family: sans-serif;
+      }
+      .danfe-80mm {
+        width: 80mm;
+        font-size: 3mm;
+
+        margin: 4mm;
+      }
+
+      table {
+        width: 100%;
+      }
+
+      th {
+        font-size: 120%;
+        font-weight: bold;
+      }
+
+      td {
+        padding: 1mm;
+      }
+
+      .cash {
+        text-align: right;
+      }
+
+      .chave-acesso {
+        font-size: 94%;
+        text-align: center;
+      }
+
+      .info {
+        font-weight: bold;
+      }
+    </style>
+  </head>
+
+  <body>
+    <label for="file-picker">Escolher arquivo XML para gerar DANFE NFC-e</label>
+    <br/>
+    <input id="file-picker" type="file" accept="text/XML" onchange="extrairInfo()"/>
+
+    <h3> Danfe Gerado: </h3>
+    <div id="danfeNFCe" class="danfe-80mm">
+      <div class="info">
+        <div id="empresa"></div>
+        <div>CNPJ: <span id="cnpj"></span></div>
+        <div id="endereco"></div>
+      </div>
+      <br/>
+      <b>Documento Auxiliar de Nota Fiscal de Consumidor Eletrônica</b>
+      <br/>
+      <table>
+        <thead>
+          <tr>
+            <th>Qtd</th>
+            <th>Item</th>
+            <th>V. un.</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody id="produtos">
+        </tbody>
+      </table>
+      <br/>
+      <table>
+        <tr>
+          <td><b>Subtotal</b></td>
+          <td>R$ <span id="subtotal" class="cash"></span></td>
+        </tr>
+        <tr>
+          <td><b>Serviço/Extra</b></td>
+          <td>R$ <span id="extra" class="cash"></span></td>
+        </tr>
+        <tr>
+          <td><b>Total</b></td>
+          <td>R$ <span id="total" class="cash"></span></td>
+        </tr>
+      </table>
+      <br/>
+      <table>
+        <thead>
+          <tr>
+            <th>FORMA DE PAGAMENTO</th>
+            <th>VALOR PAGO (R$)</th>
+          </tr>
+        </thead>
+        <tbody id="pagamentos">
+        </tbody>
+      </table>
+      <br/>
+      <div class="chave-acesso">
+        Consulte pela chave de Acesso:
+        <br/>
+        <span id="chave-de-acesso"></span>
+      </div>
+      <br/>
+      <div>
+        <b id="consumidor"></b>
+      </div>
+      <br/>
+      <div id="qrcode"></div>
+      <br/>
+      <b>Tributos totais incidentes (Lei Federal 12.741/2012):</b>
+      <br/>
+      <b>R$<span id="tributos"></span></b>
+      <br/>
+      NCommerce serviço de automação V1.0
+      <br/>
+    </div>
+    <br/>
+      <button onclick="printMe()" class="btn btn-md btn-success">Imprimir</button>
+    <br/>
+  </body>
+
+  <script>
+    var danfe = {
+      empresa: '', // razão social
+      cnpj: '', // só numeros
+      endereco: '', // logradouro, número e complemento
+
+      subtotal: '', // valor dos produtos (vProd)
+      extra: '', // valores extras (vOutro)
+      total: '', // valor da nota (vNF)
+
+      consumidor: '', // cpf ou cnpj do consumidor (só números)
+
+      qrCode: '', // url a ser convertida para qr code
+
+      tributos: '', // valor total dos tributos (vTotTrib)
+      chave_de_acesso: '', // só números
+
+      produtos: [],
+      pagamentos: []
+    };
+
+    var sample_produto = {
+      qty: '', // quantidade
+      name: '', // nome
+      unitary_value: '', // valor unitário
+      total_value: '' // valor total
+    };
+    var sample_pagamento = {
+      value_payed: '', // valor pago
+      payment_method_code: '', // código de pagamento: 01 - dinheiro, 02 - cheque, etc
+      payment_method_ptbr: '' // 'Dinheiro', 'Cheque', etc. Conferir função codigoPagamentoParaString
+    };
+
+    function extrairInfo() {
+      let fileInput = document.getElementById("file-picker");
+      let file = fileInput.files[0];
+
+      if (file) {
+        let reader = new FileReader();
+        reader.readAsText(file, "UTF-8");
+        reader.onload = function (evt) {
+          let target = evt.target;
+          let content = target.result;
+
+          let parser = new DOMParser();
+          let xmlDoc = parser.parseFromString(content, "text/xml");
+
+          let emit = xmlDoc.getElementsByTagName("emit")[0];
+          danfe.empresa = emit.getElementsByTagName("xNome")[0].textContent;
+          danfe.cnpj = emit.getElementsByTagName("CNPJ")[0].textContent;
+          danfe.endereco = emit.getElementsByTagName("xLgr")[0].textContent
+                              + ', ' + emit.getElementsByTagName("nro")[0].textContent
+                              + ', ' + emit.getElementsByTagName("xCpl")[0].textContent;
+
+          let total = xmlDoc.getElementsByTagName("total")[0];
+          danfe.subtotal = total.getElementsByTagName("vProd")[0].textContent;
+          danfe.extra = total.getElementsByTagName("vOutro")[0].textContent;
+          danfe.total = total.getElementsByTagName("vNF")[0].textContent;
+
+          let dest = xmlDoc.getElementsByTagName("dest")[0];
+          if(!!dest) {
+
+            if(!!dest.getElementsByTagName("CPF")[0]) {
+              danfe.consumidor = dest.getElementsByTagName("CPF")[0].textContent;
+            } else if(!!dest.getElementsByTagName("CNPJ")[0]) {
+              danfe.consumidor = dest.getElementsByTagName("CNPJ")[0].textContent;
+            }
+          }
+
+          danfe.qrCode = xmlDoc.getElementsByTagName("qrCode")[0].textContent;
+          danfe.tributos = xmlDoc.getElementsByTagName("vTotTrib")[0].textContent;
+          let chaveDeAcesso = xmlDoc.getElementsByTagName("infNFe")[0].getAttribute("Id").substr(3);
+          danfe.chave_de_acesso = chaveDeAcesso.match(/.{4}/g).join(' ');
+          console.log(xmlDoc.getElementsByTagName("infNFe")[0]);
+          
+          // product's info: quantity, name, unitary value and total value
+          let products = xmlDoc.getElementsByTagName("prod");
+          danfe.produtos = [];
+          for(let i = 0; i < products.length; i++) {
+            let product = products[i];
+
+            let qty = product.getElementsByTagName("qCom")[0].textContent;
+            let productName = product.getElementsByTagName("xProd")[0].textContent;
+            let unValue = product.getElementsByTagName("vUnCom")[0].textContent;
+            let totalValue = product.getElementsByTagName("vProd")[0].textContent;
+
+
+            danfe.produtos.push({
+              qty: qty,
+              name: productName,
+              unitary_value: unValue,
+              total_value: totalValue
+            });
+          }
+
+          let pagamentos = xmlDoc.getElementsByTagName("detPag");
+          danfe.pagamentos = [];
+          for(let i = 0; i < pagamentos.length; i++) {
+            let pagamento = pagamentos[i];
+
+            let valuePayed = pagamento.getElementsByTagName("vPag")[0].textContent;
+            let methodCode = pagamento.getElementsByTagName("tPag")[0].textContent;
+
+            danfe.pagamentos.push({
+              value_payed: valuePayed,
+              payment_method_code: methodCode,
+              payment_method_ptbr: codigoPagamentoParaString(methodCode)
+            });
+          }
+          console.log(danfe);
+          gerarDanfe();
+          genQrCode();
+        }
+        reader.onerror = function (evt) {
+          console.error(evt);
+        }
+      }
+    }
+
+    function gerarDanfe() {
+      $("#empresa").text(danfe.empresa);
+      $("#cnpj").text(danfe.cnpj);
+      $("#endereco").text(danfe.endereco);
+
+      $("#subtotal").text(danfe.subtotal.replace('.',','));
+      $("#extra").text(danfe.extra.replace('.',','));
+      $("#total").text(danfe.total.replace('.',','));
+
+      $("#consumidor").text(danfe.consumidor);
+
+      $("#qrCode").text(danfe.qrCode);
+
+      $("#tributos").text(danfe.tributos);
+      $("#chave-de-acesso").text(danfe.chave_de_acesso);
+
+      html = "";
+      for(let produto of danfe.produtos) {
+        html += "<tr>";
+        html += "<td>" + produto.qty + "</td>";
+        html += "<td>" + produto.name + "</td>";
+        html += "<td class='cash'>" + produto.unitary_value.replace('.',',') + "</td>";
+        html += "<td class='cash'>" + produto.total_value.replace('.',',') + "</td>";
+        html += "</tr>";
+      }
+      $("#produtos").html(html);
+
+      html = "";
+      for(let pagamento of danfe.pagamentos) {
+        html += "<tr>";
+        html += "<td>" + pagamento.payment_method_ptbr + "</td>";
+        html += "<td class='cash'>" + pagamento.value_payed.replace('.',',') + "</td>";
+        html += "</tr>";
+      }
+      $("#pagamentos").html(html);
+    }
+
+    function codigoPagamentoParaString(payment_method_code) {
+      switch(payment_method_code) {
+        case "01":
+          return "Dinheiro";
+        case "02":
+          return "Cheque";
+        case "03":
+          return "Cartao de credito";
+        case "04":
+          return "Cartao de debito";
+        case "99":
+          return "Outros";
+      }
+    }
+
+    function genQrCode() {
+      $("#qrcode").html();
+      console.log(danfe.qrCode);
+      new QRCode(document.getElementById("qrcode"), danfe.qrCode);
+    }
+
+    function printMe() {
+      //printJS('danfeNFCe', 'html');
+      let obj = document.getElementById("danfeNFCe");
+
+      var myframe = document.createElement('IFRAME');
+      myframe.domain = document.domain;
+      myframe.style.position = "absolute";
+      myframe.style.top = "-10000px";
+      document.body.appendChild(myframe);
+      myframe.contentDocument.write(obj.innerHTML) ;
+      setTimeout(function(){
+      myframe.focus();
+      myframe.contentWindow.print();
+      myframe.parentNode.removeChild(myframe) ;// remove frame
+      },3000); // wait for images to load inside iframe
+      window.focus();
+    }
+  </script>
+</html>
